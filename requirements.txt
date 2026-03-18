@@ -1,0 +1,7 @@
+PyQt6
+moviepy
+numpy
+gTTS
+openai
+python-dotenv
+edge-tts
