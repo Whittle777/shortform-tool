@@ -1,0 +1,14 @@
+PyQt6
+moviepy
+numpy
+gTTS
+openai
+python-dotenv
+edge-tts
+google-generativeai
+google-cloud-storage
+requests
+APScheduler
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
