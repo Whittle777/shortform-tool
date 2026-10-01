@@ -174,10 +174,13 @@ def generate_scripts_from_prompt(prompt_text, num_videos, api_key=None, logger=N
         print(f"Gemini API Error: {e}")
         return []
 
-def process_narrator_batch(scripts, gameplay_dir, output_dir, use_openai=False, api_key=None, speed_factor=1.0, logger=None):
+def process_narrator_batch(scripts, gameplay_dir, output_dir, use_openai=False, api_key=None, speed_factor=1.0, logger=None, upload_mode="legacy"):
     """
     Proceses a batch of scripts into narrated videos.
     Refactored for Line-by-Line Sync + Rainbow Borders.
+    upload_mode: "legacy" keeps the in-process APScheduler YouTube queue (GUI),
+    "none" only renders and returns results so the caller decides about uploads (CLI).
+    Returns a list of {"path", "caption"} dicts for the videos that rendered.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -188,7 +191,8 @@ def process_narrator_batch(scripts, gameplay_dir, output_dir, use_openai=False, 
         return
 
     total = len(scripts)
-    
+    results = []
+
     for i, script_obj in enumerate(scripts):
         if isinstance(script_obj, dict):
             script_text = script_obj.get('script', "")
@@ -419,18 +423,21 @@ def process_narrator_batch(scripts, gameplay_dir, output_dir, use_openai=False, 
             for path in temp_files_to_clean:
                 if os.path.exists(path): os.remove(path)
                 
+            results.append({"path": out_path, "caption": caption_text})
+
             # --- YOUTUBE PIPELINE INTEGRATION ---
             # Instead of GCS + Webhook, we schedule a direct YouTube Upload.
             import glob
-            if glob.glob('client_secret_*.json') or os.path.exists('token.json'):
-                cloud_pipeline.schedule_youtube_post(
-                    video_path=out_path,
-                    caption=caption_text,
-                    generation_index=i,
-                    logger=logger
-                )
-            else:
-                if logger: logger("  Skipping YouTube pipeline (client_secret_*.json not found).")                
+            if upload_mode == "legacy":
+                if glob.glob('client_secret_*.json') or os.path.exists('token.json'):
+                    cloud_pipeline.schedule_youtube_post(
+                        video_path=out_path,
+                        caption=caption_text,
+                        generation_index=i,
+                        logger=logger
+                    )
+                else:
+                    if logger: logger("  Skipping YouTube pipeline (client_secret_*.json not found).")
             if logger: logger("  Finished.")
 
         except Exception as e:
@@ -439,3 +446,4 @@ def process_narrator_batch(scripts, gameplay_dir, output_dir, use_openai=False, 
             continue
 
     if logger: logger("Narrator Batch Complete.")
+    return results

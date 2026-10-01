@@ -7,7 +7,11 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+# readonly added for video statistics; takes effect at the next OAuth re-auth.
+SCOPES = [
+    'https://www.googleapis.com/auth/youtube.upload',
+    'https://www.googleapis.com/auth/youtube.readonly',
+]
 
 def get_authenticated_service(logger=None):
     """
@@ -59,22 +63,35 @@ def initialize_youtube_auth(logger=None):
         if logger: logger(f"Error initializing YouTube Auth: {e}")
         return False
 
-def upload_video_to_youtube(video_path, caption, tags=None, logger=None):
+def upload_video_to_youtube(video_path, caption, tags=None, logger=None, publish_at=None, title=None, privacy=None):
     """
     Uploads a video to YouTube using the authenticated API.
+    publish_at: optional RFC3339 UTC timestamp (e.g. 2026-09-01T17:00:00Z).
+    When given, the video uploads as private and YouTube publishes it at that time.
+    privacy: 'public' (default), 'unlisted', or 'private'. Ignored when publish_at is set.
+    Returns the video ID on success, None on failure.
     """
     if tags is None:
         tags = ["shorts", "facts", "interesting", "foryou"]
-        
+
     try:
         if logger: logger(f"Starting YouTube upload for: {video_path}")
         youtube = get_authenticated_service(logger=logger)
-        
+
         # YouTube requires a title of max 100 characters. We'll use the beginning of the caption.
-        title = caption.split('\n')[0][:100].strip()
+        if not title:
+            title = caption.split('\n')[0][:100].strip()
         if not title:
             title = "Fascinating Facts!"
-            
+
+        status = {
+            'privacyStatus': privacy or 'public',  # public, private, or unlisted
+            'selfDeclaredMadeForKids': False
+        }
+        if publish_at:
+            status['privacyStatus'] = 'private'
+            status['publishAt'] = publish_at
+
         # Describe the video and snippet
         body = {
             'snippet': {
@@ -83,10 +100,7 @@ def upload_video_to_youtube(video_path, caption, tags=None, logger=None):
                 'tags': tags,
                 'categoryId': '24' # Entertainment
             },
-            'status': {
-                'privacyStatus': 'public',  # public, private, or unlisted
-                'selfDeclaredMadeForKids': False
-            }
+            'status': status
         }
 
         # Call the API's videos.insert method to create and upload the video.
@@ -95,10 +109,12 @@ def upload_video_to_youtube(video_path, caption, tags=None, logger=None):
             body=body,
             media_body=MediaFileUpload(video_path, chunksize=-1, resumable=True)
         )
-        
+
         response = insert_request.execute()
         if logger: logger(f"Upload Successful! Video ID: {response.get('id')}")
-        
+        return response.get('id')
+
     except Exception as e:
         if logger: logger(f"Failed to upload to YouTube: {e}")
         print(f"Failed to upload to YouTube: {e}")
+        return None
